@@ -1,7 +1,44 @@
 
-## Multi-Agent Reinforcement Learning: A competition on cumulating blocks
-Authors: [Naeem Khoshnevis](https://github.com/Naeemkh) and [Utsav Shrestha](https://github.com/ushrstha)
+class Domain:
+    def __init__(self):
+        pass
 
-### Notes:
-- The original version of this project was an Artificial Intelligence course project at the University of Memphis in Fall 2019 that was implemented by equal contribution by Naeem Khoshnevis and Utsav Shrestha. 
-- [This tutorial](https://www.samyzaf.com/ML/rl/qmaze.html) by Samy Zafrany was beneficial in the initial implementations.    
+
+    def initiat_domain(self):
+        pass
+
+    def upade_state(self):
+        pass
+
+    def compute_reward(self):
+        pass
+
+    def make_action(self):
+        pass
+
+    def provide_stat(self):
+        pass
+
+    def is_action_valid(self):
+        pass
+
+    def add_wall(self):
+        pass
+   
+    def add_agent(self):
+        pass
+
+    def add_gold(self):
+        pass
+
+    def add_storage(self):
+        pass
+
+    def assigne_storage_to_agent(self):
+        pass
+
+    def current_state(self):
+        pass
+
+
+
