@@ -57,7 +57,8 @@ class Cube:
         "wall" : [0, [0,0,0]],
         "fspace" : [1, [255,255,255]],
         "gold" : [2,[255,196,0]],
-        "storage": [3,[255,224,224]]
+        "storage": [3,[255,224,224]],
+        "gold_delivered_storage": [4, [0, 88, 161]]
     }
 
     def __init__(self):
@@ -100,6 +101,46 @@ class Domain:
         self.color_space_holder = np.zeros((self.nrows,self.ncols,3))
         self.code_space_holder = np.zeros((self.nrows,self.ncols))
         self.can_add_agent = True
+      
+       
+    #    list of possibilities for reward:
+    #    hitting_wall (n_hw) - 
+    #    hitting_border (n_hb) -
+    #    hittin_gold_delivered_storage (n_hgds) -
+    #    enter_cube_with_gold_while_has_gold (n_ecwg_hg) -
+    #    enter_cube_with_gold_while_hasnot_gold (p_ecwg_hng) +
+    #    attemp_to_pickup_gold_at_fspace (n_atpg_afs) -
+    #    attemp_to_pickup_gold_at_gold_cube_has_gold (n_atpg_agc_hg) -
+    #    attemp_to_pickup_gold_at_gold_cube_hasnot_gold (p_atpg_agc_hng) +
+    #    wandering_around (n_wa) -
+    #    enter_storage_while_has_gold (p_es_hg) +
+    #    enter_storage_while_hasnot_gold (n_es_hng) -
+    #    attemp_to_drop_gold_at_storage_agent_has_gold (p_atdg_as_ahg) +
+    #    attemp_to_drop_gold_at_storage_agent_hasnot_gold (n_atdg_as_ahng) -
+    #    attemp_to_drop_gold_at_gold_delivered_storage (n_atdg_agds) -
+    #    attemp_to_drop_gold_at_cube_with_gold (n_atdg_acwg) -
+    #    attemp_to_dorp_gold_has_not_have_one (n_atdg_hng) -
+    #    attemp_to_drop_gold_at_free_space (n_atdg_fspace) -
+       
+
+        self.rewards = {'n_hw': -0.8,
+                        'n_hb': -0.5,
+                        'n_hgds': -0.3,
+                        'n_ecwg_hg': -0.3,
+                        'p_ecwg_hng': +0.6,
+                        'n_atpg_afs': -0.2,
+                        'n_atpg_agc_hg': -0.6,
+                        'p_atpg_agc_hng': +0.7,
+                        'n_wa': -0.02,
+                        'p_es_hg': +0.6,
+                        'n_es_hng': -0.4,
+                        'p_atdg_as_ahg': +1.0,
+                        'n_atdg_as_ahng': -0.2,
+                        'n_atdg_agds': -0.5,
+                        'n_atdg_hng': -0.02,
+                        'n_atdg_acwg': -0.02,
+                        'n_atdg_fspace': -0.2
+                         }
         
     def initiat_domain(self):
         "Initialize the domain as n*n matri, 1 is free space"
@@ -129,59 +170,124 @@ class Domain:
             print("There is no agent to take any action")
         else:
             # print(f"Agent row: {self.agent.row}, col: {self.agent.col}")
+            
+            # At this step, agent shows what it wants to do, e.g., wants to get out of the domain.
+            # However, Domain decides whether it is a valid move and give rewards accordingly. 
             (new_row, new_col, pickup, dropoff) = self.agent.take_action(action_item)
 
+
             if pickup:
-                # look see if there is a gold in the box and if there is pick it up, reward, and update accordingly.
-                if self.domain_mat[self.agent.row][self.agent.col].ctype == "gold" and not self.agent.has_box:
-                    self.agent.has_box = True
-                    self.domain_mat[self.agent.row][self.agent.col].update("fspace")
-                    
-            elif dropoff:
-                # look see if it is a dropoff location
-                # Agent can drop the box at any place, however, if the place is storage, should get a good reward.
-                if self.domain_mat[self.agent.row][self.agent.col].ctype != "gold" and self.agent.has_box:
-                    self.agent.has_box = False
-                    self.domain_mat[self.agent.row][self.agent.col].update("gold")
-
-            elif  (new_row < 0 or new_row > self.nrows-1) or (new_col < 0 or new_col > self.ncols-1):
-                # the agent wants to go out. Should be given penalty for going out of the board.
-                pass
+                if self.domain_mat[self.agent.row][self.agent.col].ctype == "gold":
+                    # currently there is a gold in the place that the agent is located.
+                    if not self.agent.has_box:
+                        # agent does not have box(gold) so it can pick it up and will get + reward.
+                        self.agent.has_box = True
+                        self.domain_mat[self.agent.row][self.agent.col].update("fspace")
+                        this_action_reward = self.rewards["p_atpg_agc_hng"]
+                    else: 
+                        # agent has a box, however, tries to get another one. 
+                        # Nothing happen, but will recieve - reward.
+                        this_action_reward = self.rewards["n_atpg_agc_hg"]
+                else:
+                    # Agent is at some place that is a free space, however, tries to pickup gold, 
+                    # will recieve - rewards.
+                    this_action_reward = self.rewards["n_atpg_afs"]
                 
-            elif self.domain_mat[new_row][new_col].ctype == "wall":
-                # the agent wants to go into the wall should be given penalty
-                pass
+                return this_action_reward
 
-            elif self.domain_mat[new_row][new_col].ctype == "gold":
-                # the agent wants to go into a place with gold. 
-                # there are two possiblities:
-                # 1) if it carries gold, give penalty, because the gold should go to the storage.
-                # 2) if it does not carry a gold, give some reward.
+
+            if dropoff:
+                if not self.agent.has_box:
+                    # agent tries to drop a box, where as does not have one. 
+                    # nothing will happen but will recieve - reward.
+                    this_action_reward = self.rewards["n_atdg_hng"]
+                else:
+                    # The agent has the gold.
+                    if self.domain_mat[self.agent.row][self.agent.col].ctype == "storage":
+                        # the storage is ready to recieve the gold.
+                        self.agent.has_box = False
+                        self.domain_mat[self.agent.row][self.agent.col].update("gold_delivered_storage")
+                        this_action_reward = self.rewards["p_atdg_as_ahg"]
+
+                    elif self.domain_mat[self.agent.row][self.agent.col].ctype == "gold_delivered_storage":
+                        # The location is not available 
+                        # Agent should never get here 
+                        print("Bug to fix: Agent should never gets here. Block it")
+
+                    elif self.domain_mat[self.agent.row][self.agent.col].ctype == "gold":
+                        # The agent has gold, however, wants to drop it at a cube with gold
+                        # nothing will happen, however, will recieve - reward.
+                        this_action_reward = self.rewards["n_atdg_acwg"]
+
+                    elif self.domain_mat[self.agent.row][self.agent.col].ctype == "fspace":
+                        # The agent has a gold, however, wants to drop it at some free space.
+                        # Can do it, but not encouraged--will recieve - reward.
+                        self.agent.has_box = False
+                        self.domain_mat[self.agent.row][self.agent.col].update("gold")
+                        this_action_reward = self.rewards["n_atdg_fspace"]
+                    else:
+                        print("Bug to fix: This condition is not predicted.")
+
+                return this_action_reward
+
+
+            if (not pickup) and (not dropoff):
+                # the agent wants to change location
+                if (new_row < 0 or new_row > self.nrows-1) or (new_col < 0 or new_col > self.ncols-1):
+                    # the agent wants to go out of the domain. Nothing will happen,
+                    # however, the agent will get - reward.
+                    this_action_reward = self.rewards["n_hb"]
+
+                elif self.domain_mat[new_row][new_col].ctype == "wall":
+                    # the agent wants to go into the wall. Nothing will happen, 
+                    # however, the agent will get - reward.
+                    this_action_reward = self.rewards["n_hw"]
+
+                elif self.domain_mat[new_row][new_col].ctype == "gold_delivered_storage":
+                    # the agent wants to go into the storage that is gold delivered. 
+                    # Nothing will happen, however, the agent will receive - reward.
+                    this_action_reward = self.rewards["n_hgds"]
+
+                elif self.domain_mat[new_row][new_col].ctype == "gold":
+                    # the agent wants to go into a cube with gold
+                    if self.agent.has_box:
+                        # already has the gold, should not do this. 
+                        # will recieve negative reward.
+                        self.agent.row = new_row
+                        self.agent.col = new_col
+                        this_action_reward = self.rewards["n_ecwg_hg"]
+                    else:
+                        # has not a gold, will recieve + reward
+                        self.agent.row = new_row
+                        self.agent.col = new_col
+                        this_action_reward = self.rewards["p_ecwg_hng"]
                 
-                self.agent.row = new_row
-                self.agent.col = new_col
+                elif self.domain_mat[new_row][new_col].ctype == "fspace":
+                    # the agent wandering around, it is ok, however,
+                    # will recieve some negative rewards.
+                    self.agent.row = new_row
+                    self.agent.col = new_col
+                    this_action_reward = self.rewards["n_wa"]
 
-            # elif self.domain_mat[new_row][new_col].ctype == "storage":
-            #     # the agent wants to go into a place which is designated as a storage.
-            #     # there are two possiblities:
-            #     # 1) if it carries gold, give some reward.
-            #     # 2) if it does not carry a gold, give penalty.
-            #     pass
+                elif self.domain_mat[new_row][new_col].ctype == "storage":
+                    # the agent wandering around, it is ok, however,
+                    # will recieve some negative rewards.
+                    if self.agent.has_box:
+                        self.agent.row = new_row
+                        self.agent.col = new_col
+                        this_action_reward = self.rewards["p_es_hg"]
+                    else:
+                        self.agent.row = new_row
+                        self.agent.col = new_col
+                        this_action_reward = self.rewards["n_es_hng"]
 
-            else:
-                # the agent goes some where normal, it will get small negative reward because of wandering. 
-                self.agent.row = new_row
-                self.agent.col = new_col
+                else:
+                    print("Bug to fix: This condition is not predicted.")
+                    this_action_reward = 0
+
+                return this_action_reward
 
             
-    def update_status(self,new_stat):
-        pass
-
-    def provide_stat(self):
-        pass
-
-    def is_action_valid(self):
-        pass
 
     def add_wall(self,wall_xy):
         for loc in wall_xy:
@@ -209,8 +315,6 @@ class Domain:
                 self.domain_mat[loc[0]][loc[1]].update("storage")
         
 
-    def current_state(self):
-        pass
 
     def compute_color(self):
         """color matrix will be used to presetnation purposes."""
@@ -280,40 +384,56 @@ if __name__=="__main__":
     mydomain = Domain((25,25))
 
     mywall = []
-
-    for i in range(5,12):
-        mywall.append([i,18])
-
-    for j in range(5,12):
-        mywall.append([10,j])
-     
-    storage = [[19,6],[19,7],[19,8],[19,9],[19,10],[19,11],[19,12],[19,13]]
-    mydomain.add_wall(mywall)
-    
+    mystorage = []
     mygold=[]
-    for i in range(1,2):
-        for j in range(1,20): 
+
+    for i in range(0,12):
+        mywall.append([i,8])
+
+    for j in range(0,12):
+        mywall.append([20,j])
+     
+
+    mydomain.add_wall(mywall)
+
+
+    for i in range(6,10):
+        for j in range(0,5): 
+            mygold.append([i,j])
+    
+    for i in range(6,10):
+        for j in range(14,22): 
             mygold.append([i,j])
 
-    for i in range(4,5):
-        for j in range(1,20): 
+    for i in range(16,20):
+        for j in range(1,24): 
+            mystorage.append([i,j])
+
+    for i in range(13,15):
+        for j in range(2,22): 
             mygold.append([i,j])
 
-    for i in range(20,21):
-        for j in range(1,20): 
-            mygold.append([i,j])
-
-    for i in range(15,16):
-        for j in range(1,20): 
-            mygold.append([i,j])
-
+   
     mydomain.add_gold(mygold)
-    mydomain.add_storage(storage)
-    mydomain.add_agent([[4,11]])
+    mydomain.add_storage(mystorage)
+    mydomain.add_agent([[1,1]])
 
+    
+    
+    # Run for individual plots
+    # actions = ['Up','Down','Left','Right','Pickup','Dropoff']
+    # for i in range(500):
+    #     a = random.randint(0,5)
+    #     reward = mydomain.action(actions[a])
+    #     mydomain.plot_domain(True)       
+    #     print(f"Action: {actions[a]}, reward: {reward}")
+    #     #input("Press Enter to continue...")
+
+   
+    ## Run for gif animation
+    
     fig2 = plt.figure(2, figsize=(6, 6))
     #gridspec.GridSpec(1,3)
-    
     # plotting domain
     #plt.subplot2grid((1,3),(0,0), colspan=2, rowspan=1)
     ax = plt.gca()
@@ -323,14 +443,13 @@ if __name__=="__main__":
     ax.set_xticklabels([])
     ax.set_yticklabels([])
 
-
-
     ims = []
     actions = ['Up','Down','Left','Right','Pickup','Dropoff']
 
-    for i in range(5000):
+    for i in range(4000):
         a = random.randint(0,5)
-        mydomain.action(actions[a])
+        reward = mydomain.action(actions[a])
+        print(f"Action: {actions[a]}, reward: {reward}")
         im = plt.imshow(mydomain.plot_domain(False), interpolation='none')        
         ims.append([im])
 
