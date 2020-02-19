@@ -37,3 +37,17 @@
     - going into a storage cube that is gold delivered.
     
     
+### animation_3.gif
+- A 10*10 domain
+- Here are the different colors meaning:
+    - White: Free spaces
+    - Black: Walls
+    - Yellow: Golds
+    - Red: An agent which is not carrying a gold
+    - Green: An agent which is carrying a gold
+    - Transparent pink: Storage
+        
+- In this animation A deep neural network is trained to predict the next action.
+
+        
+
