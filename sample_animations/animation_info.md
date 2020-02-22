@@ -49,5 +49,18 @@
         
 - In this animation A deep neural network is trained to predict the next action.
 
-        
+
+### animation_3.gif
+- A 10*10 domain
+- Here are the different colors meaning:
+    - White: Free spaces
+    - Black: Walls
+    - Yellow: Golds
+    - Red: An agent which is not carrying a gold
+    - Green: An agent which is carrying a gold
+    - Transparent pink: Storage
+    
+- I increased the memsize from 1000 to 1000000 after watching Phil Tabor tutorials.
+- Also I modified the method of storing data from list to numpy. Which drastically improved the speed. 
+
 

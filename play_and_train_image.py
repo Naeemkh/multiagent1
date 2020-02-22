@@ -5,55 +5,126 @@ import pickle
 
 import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
+from keras.models import load_model
 
 from domain import *
 from build_model import *
 from util import *
 
 
- 
-figure_number = 1
-buffer_data = []
-
-learning_rate = 0.005
-gamma = 0.8 # discount
-domain_shape = (10,10)
-
-reuse_domain = True
-
-try:
-    with open(f'episode_data_{domain_shape[0]}_{domain_shape[1]}.pkl', 'rb') as infile:
-        episode_data = pickle.load(infile)
-except FileNotFoundError:
-    episode_data = []
-
-
-def raw_data_to_training(mydata, prediction_model, learning_rate, gamma):
+class ReplayBuffer():
     """
-    s1: Current State
-    s2: Next state
-    a: action that takes S1 to S2
-    R: instant reward in going from S1 to S2 while taking action ac.
-    gamma: discount factor. We want to also consider longterm goals.
-    Q(s,a): Quality factor being at state s and taking action a.
-    Q(s1,a) = R + gamma * max Q(s2,ai)
+    class to handle the training sessions.
+    see: https://www.youtube.com/watch?v=5fHngyN8Qhw
     """
-    current_state, instant_reward, action, next_state = mydata
 
-    # First predict target by a neural network.
-    target_cur = prediction_model.predict(current_state)[0]
-    target_next = prediction_model.predict(next_state)[0]
-    
-    # Second modify the Q value of the action you took.   
-    tc_old = target_cur[action]
+    def __init__(self,mem_size,domain_shape,learning_rate,gamma,reuse_domain,n_actions, discrete = False):
+        self.mem_size = mem_size
+        self.domain_shape = domain_shape
+        self.discrete = discrete
+        self.learning_rate = learning_rate
+        self.gamma = gamma
+        self.model_name = 'model_'+str(domain_shape[0])+'_'+str(domain_shape[1])+'.h5'
+        self.reuse_domain = reuse_domain
+        self.flatten_domain_size = domain_shape[0]*domain_shape[1]
+        self.state_memory = np.zeros((self.mem_size, self.flatten_domain_size))
+        self.new_state_memory = np.zeros((self.mem_size, self.flatten_domain_size))
+        self.action_memory = np.zeros((self.mem_size, n_actions))
+        self.reward_memory = np.zeros(self.mem_size)
+        self.terminal_memory = np.zeros(self.mem_size, dtype=np.float32)
+        self.mem_counter = 0
+        
+    def store_transition(self, state, action, reward, state_, done):
+        index = self.mem_counter % self.mem_size
+        self.state_memory[index] = state
+        self.new_state_memory[index] = state_
+        self.reward_memory[index] = reward
+        self.terminal_memory[index] = 1 - int(done)
+        if self.discrete:
+            actions = np.zeros(self.action_memory.shape[1])
+            actions[action] = 1
+            self.action_memory[index] = actions
+        else:
+            self.action_memory[index] = action
+        self.mem_counter += 1
 
-    # uncomment for fine tuning
-    target_cur[action] = (1 - learning_rate) * target_cur[action] + learning_rate*(instant_reward + gamma * (max(target_next)))
-    
-    tc_new = target_cur[action]  
-    return [current_state[0],target_cur],[tc_old,tc_new]  
 
-    
+    def sample_buffer(self,batch_size):
+        max_mem = min(self.mem_counter, self.mem_size)
+        batch = np.random.choice(max_mem,batch_size)
+
+        state = self.state_memory[batch]
+        state_ = self.new_state_memory[batch]
+        actions = self.action_memory[batch]
+        terminal = self.terminal_memory[batch]
+        rewards = self.reward_memory[batch]
+
+        return state, actions, rewards, state_, terminal
+
+
+class PlayAgent(object):
+
+    def __init__(self, alpha, gamma, n_actions, epsilon, batch_size, 
+                      domain_shape, epsilon_dec = 0.99996, epsilon_end=0.01,
+                      mem_size = 1000000, fname= 'dqn_model.h5'):
+        self.action_space = [i for i in range(n_actions)]
+        self.n_actions = n_actions
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_dec = epsilon_dec
+        self.epsilon_end = epsilon_end
+        self.batch_size = batch_size
+        self.model_file = 'model_'+str(domain_shape[0])+'_'+str(domain_shape[1])+".h5"
+        reuse_domain = False
+
+        self.memory = ReplayBuffer(mem_size,domain_shape, alpha, gamma, reuse_domain, n_actions, discrete=True)
+        
+        bm = BuildModel(domain_shape)
+        self.mymodel = bm.get_initial_predition_model()
+
+    def remember(self, state, action, reward, new_state, done):
+        self.memory.store_transition(state,action, reward, new_state, done)
+
+    def choose_action(self, state):
+        state = state[np.newaxis, :]
+        rand = np.random.random()
+        if rand < self.epsilon:
+            action = np.random.choice(self.action_space)
+        else:
+            actions = self.mymodel.predict(state)
+            action = np.argmax(actions)
+        return action
+
+    def learn(self):
+        if self.memory.mem_counter < self.batch_size:
+            return
+
+        state, action, reward, new_state, done = self.memory.sample_buffer(self.batch_size)
+        
+        action_values = np.array(self.action_space, dtype=np.int8)
+        action_indices = np.dot(action, action_values).astype(int)
+
+        q_eval = self.mymodel.predict(state)
+        q_next = self.mymodel.predict(new_state)
+
+        q_target = q_eval.copy()
+
+        batch_index = np.arange(self.batch_size, dtype=np.int32)
+
+        q_target[batch_index, action_indices] = reward + self.gamma*np.max(q_next,axis=1)*done
+        
+
+        _ = self.mymodel.fit(state, q_target, verbose=0)
+
+        self.epsilon = self.epsilon * self.epsilon_dec if self.epsilon > self.epsilon_end else self.epsilon_end
+
+    def save_model(self):
+        self.mymodel.save(self.model_file)
+
+    def load_model(self):
+        self.mymodel = load_model(self.model_file)
+
+
 
 def save_figure(canvas, domain_shape,tmp_probs,a, ac,fig_num):
             fig = plt.figure(1, figsize=(9, 6))
@@ -83,154 +154,72 @@ def save_figure(canvas, domain_shape,tmp_probs,a, ac,fig_num):
 
 
 
-model_name = 'model_'+str(domain_shape[0])+'_'+str(domain_shape[1])
+if __name__ == "__main__":
+
+        domain_shape = (10,10)
+        mydomain = create_random_domain(domain_shape,10,5,10)
+        mydomain1 = copy.deepcopy(mydomain)
+
+        with open(f'domain_sample_{domain_shape[0]}_{domain_shape[1]}.pkl', 'wb') as outfile:
+            pickle.dump(mydomain, outfile, pickle.HIGHEST_PROTOCOL)
 
 
-if os.path.exists(model_name+".h5"):
-    # load existing model
-    bm = BuildModel(domain_shape)
-    mymodel = bm.get_initial_predition_model()
-    mymodel.load_weights(model_name+".h5")
-    print("Weights loaded from disk.")
-    
-else:
-    # build new model.
-     bm = BuildModel(domain_shape)
-     mymodel = bm.get_initial_predition_model()
-     print("Weights not found. Creating a model with random weights.")
-    
+
+        n_games = 1000
+        my_agent = PlayAgent(gamma=0.99, epsilon=1.0, alpha=0.0005, domain_shape=domain_shape, n_actions=4, mem_size=1000000, batch_size=64, epsilon_end=0.01)
 
 
-if reuse_domain:
-    with open(f'domain_sample_{domain_shape[0]}_{domain_shape[1]}.pkl', 'rb') as infile:
-        mydomain = pickle.load(infile)
+        scores = []
+        eps_history = []
 
-else:
-    mydomain_org = create_random_domain(domain_shape,10,5,1)
-    mydomain1 = copy.deepcopy(mydomain_org)
-    with open(f'domain_sample_{domain_shape[0]}_{domain_shape[1]}.pkl', 'wb') as outfile:
-      pickle.dump(mydomain_org, outfile, pickle.HIGHEST_PROTOCOL)
+        figure_number = 1
 
+        for i in range(n_games):
+            done = False
+            score = 0
+            # mydomain = create_random_domain(domain_shape,1,2,1)
+            mydomain = copy.deepcopy(mydomain1)
 
-# episode is the whole start to end process. 
-# Here I meant to say going from one state to another. 
-# The name should be changed. 
-max_num_data_episode = 5000  
-max_num_data_buffer = 100
+            observation = mydomain.get_state()
+            jj = 1
+            plotit = True
+            while not done:
+                action = my_agent.choose_action(observation[0])
+                reward, done = mydomain.action(mydomain.actions[action])
+                # print(done)
+                new_observation = mydomain.get_state()
+                score += reward
+                my_agent.remember(observation, action, reward,new_observation, done)
+                observation = new_observation
+                my_agent.learn()
+                # print('xx')
+                
+                if jj % 5 == 0 and i % 50 == 0 and plotit:
+                    # print (f"jj: {jj} and i: {i}")
+                    current_state = mydomain.get_state()
+                    tmp_probs = my_agent.mymodel.predict(current_state)
+                    a = np.argmax(tmp_probs[0])
+                    save_figure(mydomain.plot_domain(False),domain_shape,tmp_probs,a,mydomain.actions,figure_number)
+                    figure_number += 1 
+                    plotit = False
 
-for ii in range(400000):
-    #TODO: come up with better control to end the for loop
-
-    # In the initial iteration, it performs better with random actions.
-    # With higher random action it has more discovery power.     
-    if ii < 100:
-        epsilon = 0.1
-    elif ii < 200:
-        epsilon = 0.5
-    elif ii < 500:
-        epsilon = 0.7
-    else:
-        epsilon = 0.9
-
-
-    with open(f'domain_sample_{domain_shape[0]}_{domain_shape[1]}.pkl', 'rb') as infile:
-        mydomain = pickle.load(infile)
-
-    ### Uncomment to see the image of generated domain
-    #mydomain.plot_domain(True)
-      
-
-    episode_number = 1
-    k = 0
-    ims = []
-    process = []
-
-    while episode_number < 100:
-        
-        if ii % 800 == 0 and episode_number == 8:
-
-            current_state = mydomain.get_state()
-            tmp_probs = mymodel.predict(current_state)
-            a = np.argmax(tmp_probs[0])
-            save_figure(mydomain.plot_domain(False),domain_shape,tmp_probs,a,mydomain.actions,figure_number)
-            figure_number += 1
-
-        random_number = random.random()
-    
-        if random_number < epsilon:
-            # choose action based on deep neural net prediction
-            current_state = mydomain.get_state()
-            a = np.argmax(mymodel.predict(current_state)[0])
-            reward = mydomain.action(mydomain.actions[a])
-            next_state = mydomain.get_state()
-            episode = [current_state, reward, a, next_state]
-            tr_data,tc = raw_data_to_training(episode,mymodel,learning_rate, gamma)
-            buffer_data.append(tr_data)
-
-    
-        else:
-            # choose random action
-            a = random.randint(0,3)
-            current_state = mydomain.get_state()
-            reward = mydomain.action(mydomain.actions[a])
-            next_state = mydomain.get_state()
-            episode = [current_state, reward, a, next_state]
-            tr_data,tc = raw_data_to_training(episode,mymodel,learning_rate, gamma)
-            buffer_data.append(tr_data)
-
-        
-        if len(buffer_data) >= max_num_data_buffer:
-    
-            if len(episode_data) >= max_num_data_episode:
-                del episode_data[0:max_num_data_buffer]
-                episode_data.extend(buffer_data)
-                buffer_data.clear()
-            else:
-                episode_data.extend(buffer_data)
-                buffer_data.clear()
-    
-        else:
-            pass
-    
-        if episode_data and ii % 100 == 0 and episode_number == 1:
+                jj += 1
             
-            input_1 = episode_data[0][0]
-            label_1 = episode_data[0][1]
+            eps_history.append(my_agent.epsilon)
+            scores.append(score)
+            ave_score = np.mean(scores[max(0,i-100):(i+1)])
+            print(f'episode: {i}, epsilon: {my_agent.epsilon}, score: {ave_score}, ')
             
-            for i in range(1,len(episode_data)):
-                input_1 = np.vstack([input_1,episode_data[i][0]])
-                label_1 = np.vstack([label_1,episode_data[i][1]])
-    
-            mymodel.fit(input_1,label_1, epochs=20, batch_size=256, verbose=1)
-            print("=============== Model is reTrained ==================")
-    
+            if i % 100 == 0 and i > 0:
+                my_agent.save_model()
+                
+        plt.figure()
+        plt.plot(scores)
+        plt.show()
 
-        if ii % 500 == 0 and episode_number==1:
-            h5file = model_name + ".h5"
-            json_file = model_name + ".json"
-            mymodel.save_weights(h5file, overwrite=True)
-            model_json = mymodel.to_json()
-            with open("model.json", "w") as json_file:
-                json_file.write(model_json)
-            print("Model weights are saved.")
 
-            
-        if mydomain.total_golds == 0:
-            print("All golds are carried into the storage.")
-            break
 
-        episode_number += 1
-    
 
-# Save trained model weights and architecture, this will be used by the visualization code
-h5file = model_name + ".h5"
-json_file = model_name + ".json"
-mymodel.save_weights(h5file, overwrite=True)
-model_json = mymodel.to_json()
-with open("model.json", "w") as json_file:
-    json_file.write(model_json)
-
-print("Done!")
 
 
 

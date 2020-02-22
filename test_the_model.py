@@ -10,15 +10,15 @@ import matplotlib.animation as animation
 
 domain_shape = (10,10)
 
-model_name = 'model_'+str(domain_shape[0])+'_'+str(domain_shape[1])
+model_name = 'model_'+str(domain_shape[0])+'_'+str(domain_shape[1])+'.h5'
 
 
-if os.path.exists(model_name+".h5"):
+if os.path.exists(model_name):
    # load existing model
     bm = BuildModel(domain_shape)
     mymodel = bm.get_initial_predition_model()
     print(mymodel.summary()) 
-    mymodel.load_weights(model_name+".h5")
+    mymodel.load_weights(model_name)
     print("Weights loaded from disk.")
 
 else:
@@ -65,7 +65,7 @@ else:
 
 
 
-# mydomain = create_random_domain(domain_shape,1,1,1)
+# mydomain = create_random_domain(domain_shape,1,2,1)
 
 
 with open(f'domain_sample_{domain_shape[0]}_{domain_shape[1]}.pkl', 'rb') as infile:
@@ -87,7 +87,7 @@ epsilon = 1.9
 im = plt.imshow(mydomain.plot_domain(False), interpolation=None) 
 ims.append([im])
 
-while  i <50:
+while  i<100:
 
     if mydomain.total_golds == 0:
         break
@@ -99,7 +99,7 @@ while  i <50:
         # print("Line 146")
         current_state = mydomain.get_state()
         a = np.argmax(mymodel.predict(current_state)[0])
-        reward = mydomain.action(mydomain.actions[a])
+        reward, done = mydomain.action(mydomain.actions[a])
 
     else:
         # choose random action

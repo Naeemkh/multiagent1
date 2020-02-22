@@ -1,12 +1,11 @@
-from domain import *
 import random
 import math
 
-# from keras.models import Sequential
 from keras.models import Sequential
 from keras.layers import Dense, Activation
 from keras.layers.advanced_activations import PReLU
 
+from domain import *
 
 class BuildModel:
     def __init__(self, dshape):
@@ -20,6 +19,7 @@ class BuildModel:
         self.model_size = self.nrows * self.ncols
         self.mydomain = Domain((self.nrows,self.ncols))
         self.learning_rate = 0.001
+        self.gamma = 0.9
 
     def _build_domain(self, p_wall, p_gold):
         
@@ -71,11 +71,12 @@ class BuildModel:
         for i in range(num_data):
             a = random.randint(0,3)
             current_state = self.mydomain.get_state()
-            reward = self.mydomain.action(self.mydomain.actions[a])
+            reward, done = self.mydomain.action(self.mydomain.actions[a])
             next_state = self.mydomain.get_state()
             episode = [current_state, reward, a, next_state]
             tr_data = self._raw_data_to_training(episode)
             init_data.append(tr_data)
+
 
         return init_data
    
@@ -125,13 +126,7 @@ class BuildModel:
         target_next = self.prediction_model.predict(next_state)[0]
         
         # Second modify the Q value of the action you took. 
-        # print("*+="*10)
-        # print(f"action: {action}")
-        # print(f"Target: {target_cur}")       
-        # print(f"Instant Reward: {instant_reward}")     
-        target_cur[action] = target_cur[action] + self.learning_rate*((instant_reward + (max(target_next)-target_cur[action])))
-        # print(f"Target: {target_cur}")       
-        # print("*+="*10)
+        target_cur[action] = (1 - self.learning_rate) * target_cur[action] + self.learning_rate*(instant_reward + self.gamma * (max(target_next)))
 
         return [current_state[0],target_cur]       
 

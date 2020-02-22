@@ -201,8 +201,12 @@ class Domain:
                 print("Bug to fix: This condition is not predicted.")
                 this_action_reward = 0
             
+            if self.total_golds == 0:
+                self.done = True
+            else:
+                self.done = False
 
-            return this_action_reward
+            return this_action_reward, self.done
 
             
 
