@@ -1,6 +1,7 @@
-
 ## Multi-Agent Reinforcement Learning: A competition on cumulating blocks
 Authors: [Naeem Khoshnevis](https://github.com/Naeemkh) and [Utsav Shrestha](https://github.com/ushrstha)
+
+![Farmers Market Finder Demo](sample_animations/animation_4.gif.gif)
 
 ### Notes:
 - The original version of this project was an Artificial Intelligence course project at the University of Memphis in Fall 2019 that was implemented by equal contribution by Naeem Khoshnevis and Utsav Shrestha. 
